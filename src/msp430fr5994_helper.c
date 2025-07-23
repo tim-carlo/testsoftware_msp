@@ -1,6 +1,6 @@
 #include "msp430fr5994_helper.h"
 bool delay_done = false;
-uint32_t timer_overflows = 0;
+uint32_t overflow_count = 0;
 uint64_t gpio_blacklist_intern_mask = 0;
 
 /**
@@ -93,9 +93,15 @@ void io_init()
     P2SEL0 &= ~(BIT0 | BIT1); // Clear P2.0/P2.1 SEL0
     P2SEL1 |= BIT0 | BIT1;    // Set UART function
 
+    // Configure GPIO pins for LEDs
+    P1DIR |= BIT1;   // Output
+    P1OUT &= ~BIT1;  // LED aus
+
+    P1DIR |= BIT0;   // Output
+    P1OUT &= ~BIT0;  // LED aus
+
     // Configure Timer A1
     TA1CTL = TASSEL__SMCLK | ID__8 | MC__STOP | TACLR | TAIE;
-    timer_overflows = 0;
 
     __enable_interrupt(); // Enable global interrupts
 }
@@ -229,46 +235,74 @@ void delay_62_5ms(void)
  */
 void delay_us(uint32_t us)
 {
-    if (us == 0)
-        return;
+    uint32_t ticks = us;  // 1 tick = 1 µs @ 1 MHz SMCLK
+    uint32_t full_overflows = ticks / 65536;
+    uint16_t remaining_ticks = ticks % 65536;
 
-    // Convert delay time to timer ticks
-    uint32_t ticks = us * TICKS_PER_US;
+    overflow_count = full_overflows;
+    delay_done = false;
 
-    while (ticks > 0)
+    TA0CTL = TASSEL__SMCLK | ID__1 | MC__STOP | TACLR; // SMCLK, no divider, stop mode, clear
+    TA0R = 0;
+
+    // Initial CCR0 setup
+    if (remaining_ticks == 0 && full_overflows == 0)
+        TA0CCR0 = 1; // minimal delay
+    else
+        TA0CCR0 = remaining_ticks;
+
+    TA0CCTL0 |= CCIE; // Enable CCR0 interrupt
+
+    if (overflow_count > 0)
     {
-        // Chunk max size (16-bit timer)
-        uint16_t chunk = (ticks > 65535) ? 65535 : ticks;
-
-        delay_done = false;
-
-        // Stop and reset Timer A0 before configuration
-        TA0CTL = TASSEL__SMCLK | ID__1 | MC__STOP | TACLR;
-
-        TA0CCR0 = chunk - 1; // Set compare value
-        TA0CCTL0 = CCIE;     // Enable interrupt
-
-        TA0CTL |= MC__UP; // Start timer in up mode
-
-        __bis_SR_register(LPM0_bits | GIE); // Enter low-power mode with interrupts
-
-        // After waking up
-        TA0CTL = MC__STOP; // Stop the timer
-        TA0CCTL0 &= ~CCIE; // Disable interrupt
-
-        ticks -= chunk; // Decrement remaining ticks
+        TA0CCR0 = 0xFFFF;  // run full overflows first
+        TA0CTL |= TAIE;    // Enable overflow interrupt
     }
+
+    TA0CTL |= MC__UP;     // Start timer in up mode
+    __enable_interrupt();
+
+    // Wait until delay completes
+    while (!delay_done);
+
+    // Cleanup
+    TA0CCTL0 &= ~CCIE;
+    TA0CTL &= ~(MC__UP | TAIE);
+    TA0CTL |= TACLR;
 }
 
 /**
  * @brief Interrupt Service Routine for Timer A0
  */
-void __attribute__((interrupt(TIMER0_A0_VECTOR))) Timer0_A0_ISR(void)
+/* void __attribute__((interrupt(TIMER0_A0_VECTOR)))  Timer0_A0_ISR(void)
 {
-    TA0CCTL0 &= ~CCIFG; // Clear interrupt flag
+    TA0CCTL0 &= ~CCIFG;   // Clear CCR0 interrupt flag
     delay_done = true;
-    __bic_SR_register_on_exit(LPM0_bits); // Wake up from LPM
-}
+    P1OUT ^= BIT1;       // Toggle LED
+
+} */
+
+/* void __attribute__((interrupt(TIMER0_A1_VECTOR)))  Timer0_A1_ISR(void)
+{
+    P1OUT ^= BIT0; // Toggle P1.0 for debugging
+    switch (__even_in_range(TA0IV, TA0IV_TAIFG))
+    {
+        case TA0IV_TAIFG: // Overflow
+            if (overflow_count > 0)
+                overflow_count--;
+
+            if (overflow_count == 0)
+            {
+                TA0CTL &= ~TAIE;           // Disable further overflow interrupts
+                TA0CCR0 = TA0R + 1;        // Trigger CCR0 one tick later
+            }
+            break;
+
+        default:
+            break;
+    }
+} */
+
 
 /**
  * @brief Busy-wait delay in milliseconds using Timer A0

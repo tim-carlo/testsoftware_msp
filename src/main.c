@@ -1,44 +1,46 @@
-#include <msp430fr5994_helper.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <msp430.h>
 
-// Pin definitions using helper library constants
-#define LED_RED_PORT 1
-#define LED_RED_PIN 0 // P1.0
-#define LED_GREEN_PORT 1
-#define LED_GREEN_PIN 1 // P1.1
-#define TEST_PORT 3
-#define TEST_PIN 7 // P3.7
+volatile unsigned int timer_ticks = 0;
 
+void clock_init(void)
+{
+    CSCTL0_H = CSKEY >> 8;
+    CSCTL1 = DCOFSEL_0;
+    CSCTL2 = SELS__DCOCLK | SELM__DCOCLK;
+    CSCTL3 = DIVS__1 | DIVM__1;
+    CSCTL0_H = 0;
+}
 
-// Protocol configuration
-#define INITIAL_DELAY_MAX_MS 1000 // Max random initialization delay
-#define SIGNAL_DURATION_MS 50     // Signal duration for reliable detection
-#define RESPONSE_TIMEOUT_MS 150   // Response timeout window
-#define DEBOUNCE_SAMPLES 5        // Number of samples for debouncing
-#define DEBOUNCE_DELAY_US 2000    // 2ms between debounce samples
+void gpio_init(void)
+{
+    P1DIR |= BIT0 | BIT1;
+    P1OUT &= ~(BIT0 | BIT1);
+}
+
+void timer_init(void)
+{
+    TA0CCR0 = 62500 - 1;
+    TA0CCTL0 &= ~CCIFG;  // Clear flag
+    TA0CCTL0 = CCIE;     // Enable interrupt
+    TA0CTL = TASSEL__SMCLK | ID__8 | MC__UP | TACLR;
+}
 
 int main(void)
 {
+    WDTCTL = WDTPW | WDTHOLD;
+    clock_init();
+    gpio_init();
+    PM5CTL0 &= ~LOCKLPM5;
+    timer_init();
 
-    io_init(); // Initialize GPIOs
+    __bis_SR_register(GIE); // Enable global interrupts
 
-    // Initialize LEDs
-    gpio_output_init(LED_RED_PORT * 8 + LED_RED_PIN);
-    gpio_output_init(LED_GREEN_PORT * 8 + LED_GREEN_PIN);
+    while (1) {}
+}
 
-    // Initialize test pin
-    gpio_input_init(TEST_PORT * 8 + TEST_PIN);
-
-    // Main loop
-    while (1)
-    {
-        // Example: Toggle red LED every second
-        gpio_drive_high(LED_RED_PORT * 8 + LED_RED_PIN);
-        delay_ms(1000);
-        gpio_drive_low(LED_RED_PORT * 8 + LED_RED_PIN);
-        delay_ms(1000);
-    }
-
-    return 0;
+__attribute__((interrupt(TIMER0_A0_VECTOR)))
+void TIMER0_A0_ISR(void)
+{
+    timer_ticks++;
+    P1OUT ^= BIT0;
 }

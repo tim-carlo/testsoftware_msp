@@ -21,7 +21,7 @@ endif
 OUTPUT_DIR := build
 SRC_DIR := src
 INCLUDE_DIR := include
-LINKER_SCRIPT := linker.ld
+#LINKER_SCRIPT := linker.ld
 DEVICE := MSP430FR5994
 
 # Source files
@@ -86,8 +86,8 @@ flash: $(OUTPUT_DIR)/build.hex
 	@echo "Flashing complete."
 	@echo "Press Restart to run the code"
 
-# Clean build
-clean:
+# Clean build artifacts
+clear:
 	rm -rf $(OUTPUT_DIR)/*
 
 # Debug (adjust GDB if needed)

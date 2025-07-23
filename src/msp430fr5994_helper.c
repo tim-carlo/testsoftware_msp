@@ -332,10 +332,59 @@ bool is_interupt_blacklisted(uint8_t abs_pin)
     return (gpio_blacklist_intern_mask >> abs_pin) & 1;
 }
 
+static uint64_t read_all_gpio_states()
+{
+    uint64_t state = 0;
+    state |= (uint64_t)(P1IN) << 0;
+    state |= (uint64_t)(P2IN) << 8;
+    state |= (uint64_t)(P3IN) << 16;
+    state |= (uint64_t)(P4IN) << 24;
+    state |= (uint64_t)(P5IN) << 32;
+    state |= (uint64_t)(P6IN) << 40;
+    state |= (uint64_t)(P7IN) << 48;
+    state |= (uint64_t)(P8IN) << 56;
+    return state;
+}
+
 void gpio_listen_interrupt_on_all_pins(uint64_t blacklist,
                                        gpio_interrupt_handler_t falling_handler,
                                        gpio_interrupt_handler_t rising_handler)
 {
     gpio_blacklist_intern_mask = blacklist;
+    global_falling_handler = falling_handler;
+    global_rising_handler = rising_handler;
 
+    previous_state = read_all_gpio_states();
+    TA4CCTL0 = CCIE;                   // Enable interrupt for CCR0
+
+    TA4CCR0 = 12500 - 1;               // Timer counts from 0 to CCR0 inclusive
+    TA4CTL = TASSEL__SMCLK | MC__UP | ID__8 | TACLR;
+
+}
+static void gpio_timer_poll()
+{
+    uint64_t curr_state = read_all_gpio_states();
+    uint64_t changed = (previous_state ^ curr_state) & ~gpio_blacklist_intern_mask;
+
+    for (uint32_t i = 0; i < NUMBER_OF_GPIO_PINS; i++)
+    {
+        if (changed & ((uint64_t)1 << i))
+        {
+            bool prev = (previous_state >> i) & 1;
+            bool curr = (curr_state >> i) & 1;
+
+            if (prev == 1 && curr == 0 && global_falling_handler)
+                global_falling_handler(i);
+            else if (prev == 0 && curr == 1 && global_rising_handler)
+                global_rising_handler(i);
+        }
+    }
+
+    previous_state = curr_state;
+}
+
+
+void __attribute__((interrupt(TIMER4_A0_VECTOR))) Timer4_A_ISR(void)
+{
+    gpio_timer_poll();
 }

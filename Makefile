@@ -1,4 +1,4 @@
-MSP_GNU_ROOT := /Users/timcarlo/ti/msp430-gcc
+MSP_GNU_ROOT := /opt/msp430-gcc
 PREFIX := $(MSP_GNU_ROOT)/bin/msp430-elf-
 SUPPORT_FILE_DIRECTORY := $(MSP_GNU_ROOT)/include
 MSPFlasherPath := /Users/timcarlo/ti/MSPFlasher_1.3.20

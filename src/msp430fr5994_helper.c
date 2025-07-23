@@ -93,12 +93,6 @@ void io_init()
     P2SEL0 &= ~(BIT0 | BIT1); // Clear P2.0/P2.1 SEL0
     P2SEL1 |= BIT0 | BIT1;    // Set UART function
 
-    // Configure GPIO pins for LEDs
-    P1DIR |= BIT1;   // Output
-    P1OUT &= ~BIT1;  // LED aus
-
-    P1DIR |= BIT0;   // Output
-    P1OUT &= ~BIT0;  // LED aus
 
     // Configure Timer A1
     TA1CTL = TASSEL__SMCLK | ID__8 | MC__STOP | TACLR | TAIE;
@@ -274,17 +268,14 @@ void delay_us(uint32_t us)
 /**
  * @brief Interrupt Service Routine for Timer A0
  */
-/* void __attribute__((interrupt(TIMER0_A0_VECTOR)))  Timer0_A0_ISR(void)
+void __attribute__((interrupt(TIMER0_A0_VECTOR)))  Timer0_A0_ISR(void)
 {
     TA0CCTL0 &= ~CCIFG;   // Clear CCR0 interrupt flag
     delay_done = true;
-    P1OUT ^= BIT1;       // Toggle LED
+} 
 
-} */
-
-/* void __attribute__((interrupt(TIMER0_A1_VECTOR)))  Timer0_A1_ISR(void)
+void __attribute__((interrupt(TIMER0_A1_VECTOR)))  Timer0_A1_ISR(void)
 {
-    P1OUT ^= BIT0; // Toggle P1.0 for debugging
     switch (__even_in_range(TA0IV, TA0IV_TAIFG))
     {
         case TA0IV_TAIFG: // Overflow
@@ -301,7 +292,7 @@ void delay_us(uint32_t us)
         default:
             break;
     }
-} */
+}
 
 
 /**

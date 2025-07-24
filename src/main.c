@@ -75,7 +75,7 @@ int main(void)
 
 
     printf("LEDs initialized.\n");
-    gpio_listen_on_all_pins_polling(gpio_blacklist_mask, rising_edge_handler, falling_edge_handler);
+    gpio_listen_on_all_pins_interrupt(gpio_blacklist_mask, rising_edge_handler, falling_edge_handler);
 
 
     // Initialize the interrupt handlers

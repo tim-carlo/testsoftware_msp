@@ -393,21 +393,72 @@ void __attribute__((interrupt(TIMER4_A0_VECTOR))) Timer4_A_ISR(void)
     TA4CCTL0 &= ~CCIFG;
 }
 
+
+
 void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask,
-                                       gpio_interrupt_handler_t rising_handler,
-                                       gpio_interrupt_handler_t falling_handler)
+                                       gpio_interrupt_handler_t falling_handler,
+                                       gpio_interrupt_handler_t rising_handler)
 {
     gpio_blacklist_intern_mask = blacklist_mask;
     global_falling_handler = falling_handler;
     global_rising_handler = rising_handler;
 
-    // Configure all pins in open-drain mode
     for (uint8_t abs_pin = 0; abs_pin < NUMBER_OF_GPIO_PINS; abs_pin++)
     {
         if (!((blacklist_mask >> abs_pin) & 1))
         {
             gpio_pullup_init(abs_pin);
             gpio_input_init(abs_pin);
+
+            uint8_t port = abs_pin >> 3;
+            uint8_t pin = abs_pin & 0x07;
+
+            volatile uint8_t *pDIR = &P1DIR + 0x20 * port;
+            volatile uint8_t *pIE  = &P1IE  + 0x20 * port;
+            volatile uint8_t *pIES = &P1IES + 0x20 * port;
+            volatile uint8_t *pIFG = &P1IFG + 0x20 * port;
+
+            *pIE  |= (1 << pin);    // Enable interrupt
+            *pIES &= ~(1 << pin);   // Rising edge initially
+            *pIFG &= ~(1 << pin);   // Clear any pending flag
         }
     }
 }
+
+// === HELPER MACRO ===
+#define DEFINE_PORT_ISR(port)                                     \
+    void __attribute__((interrupt(PORT##port##_VECTOR)))          \
+    PORT##port##_ISR(void)                                        \
+    {                                                             \
+        uint8_t ifg = P##port##IFG & P##port##IE;                 \
+        uint8_t in  = P##port##IN;                                \
+                                                                  \
+        for (uint8_t pin = 0; pin < 8; pin++)                     \
+        {                                                         \
+            if (ifg & (1 << pin))                                 \
+            {                                                     \
+                uint8_t abs_pin = ((port - 1) << 3) | pin;        \
+                if ((gpio_blacklist_intern_mask >> abs_pin) & 1)  \
+                    continue;                                     \
+                                                                  \
+                bool level = (in >> pin) & 1;                     \
+                if (level == 0 && global_falling_handler)         \
+                    global_falling_handler(abs_pin);              \
+                else if (level == 1 && global_rising_handler)     \
+                    global_rising_handler(abs_pin);               \
+                                                                  \
+                P##port##IFG &= ~(1 << pin);                      \
+            }                                                     \
+        }                                                         \
+    }
+
+// === ISR-GENERIERUNG ===
+DEFINE_PORT_ISR(1)
+DEFINE_PORT_ISR(2)
+DEFINE_PORT_ISR(3)
+DEFINE_PORT_ISR(4)
+DEFINE_PORT_ISR(5)
+DEFINE_PORT_ISR(6)
+DEFINE_PORT_ISR(7)
+DEFINE_PORT_ISR(8)
+

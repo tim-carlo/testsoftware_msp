@@ -29,9 +29,7 @@
 #define DEVICE_DESCRIPTOR_ADDR 0x1A00
 
 // Timer configuration
-#define TIMER_A0_CCR0_VALUE 15624 // For 62.5 ms at SMCLK/64 (16MHz/64 = 250kHz)
-#define TICKS_PER_US 16           // 16 ticks per µs at 16MHz SMCLK
-#define TIMER_A1_CLK_HZ 500000
+#define SMCLK_HZ 16000000 // 16 MHz SMCLK
 
 #define NUMBER_OF_GPIO_PINS 68
 

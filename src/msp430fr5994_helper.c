@@ -1,7 +1,12 @@
 #include "msp430fr5994_helper.h"
+
+
 bool delay_done = false;
 uint32_t overflow_count = 0;
 uint64_t gpio_blacklist_intern_mask = 0;
+gpio_interrupt_handler_t global_falling_handler = NULL;
+gpio_interrupt_handler_t global_rising_handler = NULL; 
+uint64_t previous_state = 0;
 
 /**
  * @brief Get the port of absolute pin object
@@ -211,25 +216,13 @@ bool gpio_read(uint8_t abs_pin)
 }
 
 /**
- * @brief Execute one 62.5ms timer cycle
- */
-void delay_62_5ms(void)
-{
-    TA0CTL |= MC__UP | TACLR; // Start timer in up mode
-    while (!(TA0CCTL0 & CCIFG))
-        ;               // Wait for CCR0
-    TA0CTL &= ~MC_3;    // Stop timer
-    TA0CCTL0 &= ~CCIFG; // Clear flag
-}
-
-/**
  * @brief Delay for a specified number of microseconds
  *
  * @param us Number of microseconds to delay
  */
 void delay_us(uint32_t us)
 {
-    uint32_t ticks = us;  // 1 tick = 1 µs @ 1 MHz SMCLK
+    uint32_t ticks = us * (SMCLK_HZ / 1000000); ;  // 1 tick = 1 µs @ 1 MHz SMCLK
     uint32_t full_overflows = ticks / 65536;
     uint16_t remaining_ticks = ticks % 65536;
 
@@ -254,7 +247,6 @@ void delay_us(uint32_t us)
     }
 
     TA0CTL |= MC__UP;     // Start timer in up mode
-    __enable_interrupt();
 
     // Wait until delay completes
     while (!delay_done);

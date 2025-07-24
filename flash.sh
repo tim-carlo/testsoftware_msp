@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Konfiguration
+# Configuration
 MSPFLASHER_PATH="/Users/timcarlo/ti/MSPFlasher_1.3.20"
 OUTPUT_HEX="build/build.hex"
 DEVICE="MSP430FR5994"
 
-# Prüfe, ob die Datei existiert
+# Check if the file exists
 if [ ! -f "$OUTPUT_HEX" ]; then
-  echo "Fehler: Datei $OUTPUT_HEX nicht gefunden!"
+  echo "Error: File $OUTPUT_HEX not found!"
   exit 1
 fi
 

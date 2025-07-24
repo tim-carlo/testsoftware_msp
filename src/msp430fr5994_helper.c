@@ -1,11 +1,10 @@
 #include "msp430fr5994_helper.h"
 
-
 bool delay_done = false;
 uint32_t overflow_count = 0;
 uint64_t gpio_blacklist_intern_mask = 0;
 gpio_interrupt_handler_t global_falling_handler = NULL;
-gpio_interrupt_handler_t global_rising_handler = NULL; 
+gpio_interrupt_handler_t global_rising_handler = NULL;
 uint64_t previous_state = 0;
 
 /**
@@ -47,10 +46,6 @@ uint16_t get_port_base_of_absolute_pin(uint32_t abs_pin)
     else if (abs_pin >= 56 && abs_pin < 64)
     { // P8.0 to P8.7
         return P8_BASE;
-    }
-    else if (abs_pin >= 64 && abs_pin < 72)
-    { // P9.0 to P9.7
-        return P9_BASE;
     }
     return 0; // Invalid pin
 }
@@ -98,6 +93,7 @@ void io_init()
     P2SEL0 &= ~(BIT0 | BIT1); // Clear P2.0/P2.1 SEL0
     P2SEL1 |= BIT0 | BIT1;    // Set UART function
 
+    P1DIR |= BIT0; // Set P1.0 (absolute pin 0) as output
 
     // Configure Timer A1
     TA1CTL = TASSEL__SMCLK | ID__8 | MC__STOP | TACLR | TAIE;
@@ -222,7 +218,8 @@ bool gpio_read(uint8_t abs_pin)
  */
 void delay_us(uint32_t us)
 {
-    uint32_t ticks = us * (SMCLK_HZ / 1000000); ;  // 1 tick = 1 µs @ 1 MHz SMCLK
+    uint32_t ticks = us * (SMCLK_HZ / 1000000);
+    ; // 1 tick = 1 µs @ 1 MHz SMCLK
     uint32_t full_overflows = ticks / 65536;
     uint16_t remaining_ticks = ticks % 65536;
 
@@ -242,14 +239,15 @@ void delay_us(uint32_t us)
 
     if (overflow_count > 0)
     {
-        TA0CCR0 = 0xFFFF;  // run full overflows first
-        TA0CTL |= TAIE;    // Enable overflow interrupt
+        TA0CCR0 = 0xFFFF; // run full overflows first
+        TA0CTL |= TAIE;   // Enable overflow interrupt
     }
 
-    TA0CTL |= MC__UP;     // Start timer in up mode
+    TA0CTL |= MC__UP; // Start timer in up mode
 
     // Wait until delay completes
-    while (!delay_done);
+    while (!delay_done)
+        ;
 
     // Cleanup
     TA0CCTL0 &= ~CCIE;
@@ -260,32 +258,31 @@ void delay_us(uint32_t us)
 /**
  * @brief Interrupt Service Routine for Timer A0
  */
-void __attribute__((interrupt(TIMER0_A0_VECTOR)))  Timer0_A0_ISR(void)
+void __attribute__((interrupt(TIMER0_A0_VECTOR))) Timer0_A0_ISR(void)
 {
-    TA0CCTL0 &= ~CCIFG;   // Clear CCR0 interrupt flag
+    TA0CCTL0 &= ~CCIFG; // Clear CCR0 interrupt flag
     delay_done = true;
-} 
+}
 
-void __attribute__((interrupt(TIMER0_A1_VECTOR)))  Timer0_A1_ISR(void)
+void __attribute__((interrupt(TIMER0_A1_VECTOR))) Timer0_A1_ISR(void)
 {
     switch (__even_in_range(TA0IV, TA0IV_TAIFG))
     {
-        case TA0IV_TAIFG: // Overflow
-            if (overflow_count > 0)
-                overflow_count--;
+    case TA0IV_TAIFG: // Overflow
+        if (overflow_count > 0)
+            overflow_count--;
 
-            if (overflow_count == 0)
-            {
-                TA0CTL &= ~TAIE;           // Disable further overflow interrupts
-                TA0CCR0 = TA0R + 1;        // Trigger CCR0 one tick later
-            }
-            break;
+        if (overflow_count == 0)
+        {
+            TA0CTL &= ~TAIE;    // Disable further overflow interrupts
+            TA0CCR0 = TA0R + 1; // Trigger CCR0 one tick later
+        }
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 }
-
 
 /**
  * @brief Busy-wait delay in milliseconds using Timer A0
@@ -296,7 +293,6 @@ void delay_ms(uint32_t ms)
     while (ms--)
         delay_us(1000);
 }
-
 
 /**
  * @brief Push all active GPIO pins except the specified one to a stack using absolute pin numbers
@@ -324,48 +320,42 @@ bool is_interupt_blacklisted(uint8_t abs_pin)
     return (gpio_blacklist_intern_mask >> abs_pin) & 1;
 }
 
-static uint64_t read_all_gpio_states()
+uint64_t read_all_gpio_states()
 {
     uint64_t state = 0;
-    state |= (uint64_t)(P1IN) << 0;
-    state |= (uint64_t)(P2IN) << 8;
-    state |= (uint64_t)(P3IN) << 16;
-    state |= (uint64_t)(P4IN) << 24;
-    state |= (uint64_t)(P5IN) << 32;
-    state |= (uint64_t)(P6IN) << 40;
-    state |= (uint64_t)(P7IN) << 48;
-    state |= (uint64_t)(P8IN) << 56;
+    state |= (uint64_t)(*(volatile uint8_t *)&P1IN) << 0;
+    state |= (uint64_t)(*(volatile uint8_t *)&P2IN) << 8;
+    state |= (uint64_t)(*(volatile uint8_t *)&P3IN) << 16;
+    state |= (uint64_t)(*(volatile uint8_t *)&P4IN) << 24;
+    state |= (uint64_t)(*(volatile uint8_t *)&P5IN) << 32;
+    state |= (uint64_t)(*(volatile uint8_t *)&P6IN) << 40;
+    state |= (uint64_t)(*(volatile uint8_t *)&P7IN) << 48;
+    state |= (uint64_t)(*(volatile uint8_t *)&P8IN) << 56;
     return state;
 }
 
-void gpio_listen_interrupt_on_all_pins(uint64_t blacklist,
-                                       gpio_interrupt_handler_t falling_handler,
-                                       gpio_interrupt_handler_t rising_handler)
+void gpio_listen_on_all_pins_polling(uint64_t blacklist_mask,
+                                     gpio_interrupt_handler_t falling_handler,
+                                     gpio_interrupt_handler_t rising_handler)
 {
-    gpio_blacklist_intern_mask = blacklist;
+    gpio_blacklist_intern_mask = blacklist_mask;
     global_falling_handler = falling_handler;
     global_rising_handler = rising_handler;
 
     // Configure all pins in open-drain mode
     for (uint8_t abs_pin = 0; abs_pin < NUMBER_OF_GPIO_PINS; abs_pin++)
     {
-        uint16_t base = get_port_base_of_absolute_pin(abs_pin);
-        uint8_t mask = 1 << get_relative_pin(abs_pin);
-
-        // Set as output
-        *(volatile uint8_t *)((uintptr_t)(base + PORT_DIR_OFFSET)) |= mask;
-        // Drive low (open-drain)
-        *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) &= ~mask;
-        // Enable pull-up resistor for open-drain
-        *(volatile uint8_t *)((uintptr_t)(base + PORT_REN_OFFSET)) |= mask;
-        *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) |= mask;
+        if (!((blacklist_mask >> abs_pin) & 1))
+        {
+            gpio_pullup_init(abs_pin);
+            gpio_input_init(abs_pin);
+        }
     }
 
     previous_state = read_all_gpio_states();
-    TA4CCTL0 = CCIE;                   // Enable interrupt for CCR0
-
-    TA4CCR0 = 12500 - 1;               // Timer counts from 0 to CCR0 inclusive
-    TA4CTL = TASSEL__SMCLK | MC__UP | ID__8 | TACLR;
+    TA4CCR0 = 40000 - 1;                             // Zählt bis 39999 → alle 20 ms Interrupt
+    TA4CTL = TASSEL__SMCLK | ID__8 | MC__UP | TACLR; // SMCLK, ÷8, Up-Mode
+    TA4CCTL0 = CCIE;                                 // Interrupt für CCR0 aktivieren | MC__UP | ID__8 | TACLR;
 }
 static void gpio_timer_poll()
 {
@@ -380,17 +370,44 @@ static void gpio_timer_poll()
             bool curr = (curr_state >> i) & 1;
 
             if (prev == 1 && curr == 0 && global_falling_handler)
+            {
+                printf("Falling edge detected on P%lu.%lu\n", i >> 3, i & 0x07);
                 global_falling_handler(i);
+            }
             else if (prev == 0 && curr == 1 && global_rising_handler)
+            {
+                printf("Rising edge detected on P%lu.%lu\n", i >> 3, i & 0x07);
                 global_rising_handler(i);
+            }
         }
     }
 
     previous_state = curr_state;
 }
 
-
 void __attribute__((interrupt(TIMER4_A0_VECTOR))) Timer4_A_ISR(void)
 {
+    __bic_SR_register(GIE); // Disable interrupts
     gpio_timer_poll();
+    __bis_SR_register(GIE); // Re-enable interrupts
+    TA4CCTL0 &= ~CCIFG;
+}
+
+void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask,
+                                       gpio_interrupt_handler_t rising_handler,
+                                       gpio_interrupt_handler_t falling_handler)
+{
+    gpio_blacklist_intern_mask = blacklist_mask;
+    global_falling_handler = falling_handler;
+    global_rising_handler = rising_handler;
+
+    // Configure all pins in open-drain mode
+    for (uint8_t abs_pin = 0; abs_pin < NUMBER_OF_GPIO_PINS; abs_pin++)
+    {
+        if (!((blacklist_mask >> abs_pin) & 1))
+        {
+            gpio_pullup_init(abs_pin);
+            gpio_input_init(abs_pin);
+        }
+    }
 }

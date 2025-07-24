@@ -31,9 +31,10 @@
 // Timer configuration
 #define SMCLK_HZ 16000000 // 16 MHz SMCLK
 
-#define NUMBER_OF_GPIO_PINS 68
 
-
+// In this Version we leave the PJ Port out of the GPIO handling as 
+// they are used for clocks and other functions!
+#define NUMBER_OF_GPIO_PINS 64
 typedef void (*gpio_interrupt_handler_t)(uint32_t gpio);
 
 
@@ -54,16 +55,19 @@ extern "C"
     void gpio_input_init(uint8_t abs_pin);
     void gpio_output_init(uint8_t abs_pin);
     bool gpio_read(uint8_t abs_pin);
+    uint64_t read_all_gpio_states(void);
+
     void push_active_pins_to_stack(Stack *stack, uint8_t level);
     void push_active_pins_except_blacklist_to_stack(Stack *stack, bool expected_level, uint64_t blacklist_mask);
 
     void gpio_reset(uint8_t abs_pin);
-    void gpio_open_drain(uint8_t abs_pin);
     void release_gpio_open_drain(uint8_t abs_pin);
 
     bool is_interupt_blacklisted(uint8_t abs_pin);
     void configure_pin_sense(uint8_t abs_pin, bool sense_low);
-    void gpio_listen_interrupt_on_all_pins(uint64_t blacklist_mask, gpio_interrupt_handler_t rising_handler, gpio_interrupt_handler_t falling_handler);
+    void gpio_listen_on_all_pins_polling(uint64_t blacklist_mask, gpio_interrupt_handler_t rising_handler, gpio_interrupt_handler_t falling_handler);
+    void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask, gpio_interrupt_handler_t rising_handler, gpio_interrupt_handler_t falling_handler);
+
 
     uint32_t get_elapsed_time(uint32_t start, uint32_t current);
     void delay_us(uint32_t us);

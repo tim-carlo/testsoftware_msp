@@ -354,12 +354,26 @@ void gpio_listen_interrupt_on_all_pins(uint64_t blacklist,
     global_falling_handler = falling_handler;
     global_rising_handler = rising_handler;
 
+    // Configure all pins in open-drain mode
+    for (uint8_t abs_pin = 0; abs_pin < NUMBER_OF_GPIO_PINS; abs_pin++)
+    {
+        uint16_t base = get_port_base_of_absolute_pin(abs_pin);
+        uint8_t mask = 1 << get_relative_pin(abs_pin);
+
+        // Set as output
+        *(volatile uint8_t *)((uintptr_t)(base + PORT_DIR_OFFSET)) |= mask;
+        // Drive low (open-drain)
+        *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) &= ~mask;
+        // Enable pull-up resistor for open-drain
+        *(volatile uint8_t *)((uintptr_t)(base + PORT_REN_OFFSET)) |= mask;
+        *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) |= mask;
+    }
+
     previous_state = read_all_gpio_states();
     TA4CCTL0 = CCIE;                   // Enable interrupt for CCR0
 
     TA4CCR0 = 12500 - 1;               // Timer counts from 0 to CCR0 inclusive
     TA4CTL = TASSEL__SMCLK | MC__UP | ID__8 | TACLR;
-
 }
 static void gpio_timer_poll()
 {

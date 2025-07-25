@@ -93,8 +93,6 @@ void io_init()
     P2SEL0 &= ~(BIT0 | BIT1); // Clear P2.0/P2.1 SEL0
     P2SEL1 |= BIT0 | BIT1;    // Set UART function
 
-    P1DIR |= BIT0; // Set P1.0 (absolute pin 0) as output
-
     // Configure Timer A1
     TA1CTL = TASSEL__SMCLK | ID__8 | MC__STOP | TACLR | TAIE;
 
@@ -139,6 +137,8 @@ void gpio_pullup_clear(uint8_t abs_pin)
     uint8_t mask = 1 << get_relative_pin(abs_pin);
     // Disable pull-up resistor (REN = 0)
     *(volatile uint8_t *)((uintptr_t)(base + PORT_REN_OFFSET)) &= ~mask;
+    // Ensure pin is driven low (OUT = 0)
+    *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) &= ~mask;
 }
 /**
  * @brief Pull-down resistor clear
@@ -151,6 +151,8 @@ void gpio_pulldown_clear(uint8_t abs_pin)
     uint8_t mask = 1 << get_relative_pin(abs_pin);
     // Disable pull-down resistor (REN = 0)
     *(volatile uint8_t *)((uintptr_t)(base + PORT_REN_OFFSET)) &= ~mask;
+    // Ensure pin is driven high (OUT = 1)
+    *(volatile uint8_t *)((uintptr_t)(base + PORT_OUT_OFFSET)) |= mask;
 }
 /**
  * @brief Drive GPIO pin low
@@ -385,16 +387,19 @@ static void gpio_timer_poll()
     previous_state = curr_state;
 }
 
-void __attribute__((interrupt(TIMER4_A0_VECTOR))) Timer4_A_ISR(void)
-{
-    __bic_SR_register(GIE); // Disable interrupts
-    gpio_timer_poll();
-    __bis_SR_register(GIE); // Re-enable interrupts
-    TA4CCTL0 &= ~CCIFG;
-}
+static volatile uint8_t *const PxIN[] = {&P1IN, &P2IN, &P3IN, &P4IN, &P5IN, &P6IN, &P7IN, &P8IN};
+static volatile uint8_t *const PxIE[] = {&P1IE, &P2IE, &P3IE, &P4IE, &P5IE, &P6IE, &P7IE, &P8IE};
+static volatile uint8_t *const PxIFG[] = {&P1IFG, &P2IFG, &P3IFG, &P4IFG, &P5IFG, &P6IFG, &P7IFG, &P8IFG};
+static volatile uint8_t *const PxIES[] = {&P1IES, &P2IES, &P3IES, &P4IES, &P5IES, &P6IES, &P7IES, &P8IES};
 
 
-
+/**
+ * @brief Listen on all GPIO pins for rising and falling edges
+ *
+ * @param blacklist_mask Bitmask of pins to ignore (1 for ignored, 0 for active)
+ * @param falling_handler Handler for falling edges
+ * @param rising_handler Handler for rising edges
+ */
 void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask,
                                        gpio_interrupt_handler_t falling_handler,
                                        gpio_interrupt_handler_t rising_handler)
@@ -405,54 +410,70 @@ void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask,
 
     for (uint8_t abs_pin = 0; abs_pin < NUMBER_OF_GPIO_PINS; abs_pin++)
     {
-        if (!((blacklist_mask >> abs_pin) & 1))
-        {
-            gpio_pullup_init(abs_pin);
-            gpio_input_init(abs_pin);
+        if ((blacklist_mask >> abs_pin) & 1)
+            continue; // Pin ignorieren
 
-            uint8_t port = abs_pin >> 3;
-            uint8_t pin = abs_pin & 0x07;
+        gpio_pullup_init(abs_pin); // Pull-up aktivieren
+        gpio_input_init(abs_pin);  // Pin als Eingang konfigurieren
 
-            volatile uint8_t *pDIR = &P1DIR + 0x20 * port;
-            volatile uint8_t *pIE  = &P1IE  + 0x20 * port;
-            volatile uint8_t *pIES = &P1IES + 0x20 * port;
-            volatile uint8_t *pIFG = &P1IFG + 0x20 * port;
+        uint8_t port = abs_pin >> 3;
+        uint8_t pin = abs_pin & 0x07;
 
-            *pIE  |= (1 << pin);    // Enable interrupt
-            *pIES &= ~(1 << pin);   // Rising edge initially
-            *pIFG &= ~(1 << pin);   // Clear any pending flag
-        }
+        *PxIFG[port] &= ~(1 << pin); // Clear Interrupt Flag
+        *PxIES[port] |= (1 << pin); // Falling Edge (default)
+        *PxIE[port] |= (1 << pin);   // Enable Interrupt
     }
+
+    __enable_interrupt(); // Global Interrupt Enable
 }
 
-// === HELPER MACRO ===
-#define DEFINE_PORT_ISR(port)                                     \
-    void __attribute__((interrupt(PORT##port##_VECTOR)))          \
-    PORT##port##_ISR(void)                                        \
-    {                                                             \
-        uint8_t ifg = P##port##IFG & P##port##IE;                 \
-        uint8_t in  = P##port##IN;                                \
-                                                                  \
-        for (uint8_t pin = 0; pin < 8; pin++)                     \
-        {                                                         \
-            if (ifg & (1 << pin))                                 \
-            {                                                     \
-                uint8_t abs_pin = ((port - 1) << 3) | pin;        \
-                if ((gpio_blacklist_intern_mask >> abs_pin) & 1)  \
-                    continue;                                     \
-                                                                  \
-                bool level = (in >> pin) & 1;                     \
-                if (level == 0 && global_falling_handler)         \
-                    global_falling_handler(abs_pin);              \
-                else if (level == 1 && global_rising_handler)     \
-                    global_rising_handler(abs_pin);               \
-                                                                  \
-                P##port##IFG &= ~(1 << pin);                      \
-            }                                                     \
-        }                                                         \
-    }
+// Macro to define an Interrupt Service Routine (ISR) for a given GPIO port
+// Handles both falling and rising edges by toggling the edge detection after each interrupt
+#define DEFINE_PORT_ISR(port)                                                    \
+    void __attribute__((interrupt(PORT##port##_VECTOR))) PORT##port##_ISR(void) \
+    {                                                                            \
+        /* Get only active and enabled interrupt flags for this port */         \
+        uint8_t flags = P##port##IFG & P##port##IE;                              \
+                                                                                 \
+        for (uint8_t pin = 0; pin < 8; pin++)                                    \
+        {                                                                        \
+            if (flags & (1 << pin))                                              \
+            {                                                                    \
+                /* Compute absolute pin index, e.g., P3.4 → 20 */               \
+                uint8_t abs_pin = ((port - 1) << 3) | pin;                       \
+                                                                                 \
+                /* Skip if this pin is blacklisted */                            \
+                if ((gpio_blacklist_intern_mask >> abs_pin) & 1)                 \
+                    continue;                                                    \
+                /* Check if the current edge setting is falling */              \
+                bool is_falling = (P##port##IES >> pin) & 1;                     \
+                                                                                 \
+                if (is_falling)                                                  \
+                {                                                                \
+                    /* Falling edge detected → call falling edge handler */     \
+                    if (global_falling_handler)                                 \
+                        global_falling_handler(abs_pin);                         \
+                                                                                 \
+                    /* Switch to rising edge detection for next time */         \
+                    P##port##IES &= ~(1 << pin);                                 \
+                }                                                                \
+                else                                                             \
+                {                                                                \
+                    /* Rising edge detected → call rising edge handler */       \
+                    if (global_rising_handler)                                  \
+                        global_rising_handler(abs_pin);                          \
+                                                                                 \
+                    /* Switch to falling edge detection for next time */        \
+                    P##port##IES |= (1 << pin);                                  \
+                }                                                                \
+                                                                                 \
+                /* Clear the interrupt flag (ACK) */                             \
+                P##port##IFG &= ~(1 << pin);                                     \
+            }                                                                    \
+        }                                                                        \
+    }         
 
-// === ISR-GENERIERUNG ===
+// Port ISR Definitions
 DEFINE_PORT_ISR(1)
 DEFINE_PORT_ISR(2)
 DEFINE_PORT_ISR(3)
@@ -461,4 +482,3 @@ DEFINE_PORT_ISR(5)
 DEFINE_PORT_ISR(6)
 DEFINE_PORT_ISR(7)
 DEFINE_PORT_ISR(8)
-

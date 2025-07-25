@@ -7,8 +7,7 @@
 #define LED_RED_PIN 0 // P1.0
 #define LED_GREEN_PORT 1
 #define LED_GREEN_PIN 1 // P1.1
-#define ABS_PIN(port, pin) (((port) << 3) | (pin))
-
+#define ABS_PIN(port, pin) (((port) - 1) * 8 + (pin))
 
 uint64_t gpio_blacklist_mask = 0;
 
@@ -23,11 +22,11 @@ uint64_t gpio_blacklist_mask = 0;
 
 void rising_edge_handler(uint32_t gpio)
 {
-    printf("rising: P%lu.%lu\n", gpio >> 3, gpio & 0x07);
+    printf("rising: P%lu.%lu\n", (gpio >> 3) + 1, gpio & 0x07);
 }
 void falling_edge_handler(uint32_t gpio)
 {
-    printf("falling: P%lu.%lu\n", gpio >> 3, gpio & 0x07);
+    printf("falling: P%lu.%lu\n", (gpio >> 3) + 1, gpio & 0x07);
 }
 
 void print_gpio_states_binary(uint64_t gpio_states)
@@ -48,7 +47,7 @@ void print_blacklist_pins(uint64_t blacklist_mask)
     {
         if (blacklist_mask & (1ULL << i))
         {
-            uint8_t port = i >> 3;
+            uint8_t port = (i >> 3) + 1;
             uint8_t pin = i & 0x07;
             printf("P%u.%u\n", port, pin);
         }
@@ -68,6 +67,7 @@ int main(void)
     // For the buttons on P5.5 and P5.6
     gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 5)); // Allow P5.5
     gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 6)); // Allow P5.6
+    gpio_blacklist_mask &= ~(1ULL << ABS_PIN(1, 2)); // Allow P1.2
     gpio_blacklist_mask |= (1ULL << ABS_PIN(3, 4)); // Blacklist P3.4
 
 
@@ -75,7 +75,7 @@ int main(void)
 
 
     printf("LEDs initialized.\n");
-    gpio_listen_on_all_pins_interrupt(gpio_blacklist_mask, rising_edge_handler, falling_edge_handler);
+    gpio_listen_on_all_pins_interrupt(gpio_blacklist_mask, falling_edge_handler, rising_edge_handler);
 
 
     // Initialize the interrupt handlers
@@ -84,8 +84,6 @@ int main(void)
     // Main loop
     while (1)
     {
-        // Read P3.7 in each loop iteration and print its state
-        __delay_cycles(1000); // Small delay to avoid flooding output (adjust as needed)
     }
 
     return 0;

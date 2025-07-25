@@ -5,7 +5,7 @@
 #include <msp430fr5994.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h> 
+#include <stddef.h>
 
 #include "printf.h"  // Custom printf implementation
 #include "putchar.h" // Custom putchar implementation
@@ -28,17 +28,40 @@
 // Base address of the device descriptor table
 #define DEVICE_DESCRIPTOR_ADDR 0x1A00
 
+// Clock definitions
+#define SMCLK_HZ        16000000UL  // SMCLK frequency: 16 MHz
+
 // Timer configuration
-#define SMCLK_HZ 16000000 // 16 MHz SMCLK
+#define TIMER_DIVIDER   1           // Timer clock divider (ID__1)
+#define TIMER_FREQ_HZ   (SMCLK_HZ / TIMER_DIVIDER) // Effective timer frequency: 2 MHz
 
-
-// In this Version we leave the PJ Port out of the GPIO handling as 
+// In this Version we leave the PJ Port out of the GPIO handling as
 // they are used for clocks and other functions!
 #define NUMBER_OF_GPIO_PINS 64
 typedef void (*gpio_interrupt_handler_t)(uint32_t gpio);
 
+// Timer configuration macros
+typedef enum
+{
+    TIMER_A0,
+    TIMER_A1,
+    TIMER_A4,
+    TIMER_B0
+} timer_t;
 
-#define NUM
+#define GET_TxxCTL(timer) ((volatile uint16_t *)((timer) == TIMER_A0 ? &TA0CTL : (timer) == TIMER_A1 ? &TA1CTL \
+                                                       : (timer) == TIMER_A4   ? &TA4CTL \
+                                                                               : &TB0CTL))
+
+#define GET_TxxR(timer) ((volatile uint16_t *)((timer) == TIMER_A0 ? &TA0R : (timer) == TIMER_A1 ? &TA1R \
+                                                   : (timer) == TIMER_A4   ? &TA4R \
+                                                                           : &TB0R))
+
+#define GET_TxxCCTL0(timer) ((volatile uint16_t *)((timer) == TIMER_A0 ? &TA0CCTL0 : (timer) == TIMER_A1 ? &TA1CCTL0 \
+                                                           : (timer) == TIMER_A4   ? &TA4CCTL0 \
+                                                                                   : &TB0CCTL0))
+
+#define TICKS_PER_OVERFLOW 65536UL
 
 #ifdef __cplusplus
 extern "C"
@@ -46,7 +69,7 @@ extern "C"
 #endif
 
     void io_init(void);
-    
+
     void gpio_pullup_init(uint8_t abs_pin);
     void gpio_pulldown_init(uint8_t abs_pin);
     void gpio_pullup_clear(uint8_t abs_pin);
@@ -68,21 +91,19 @@ extern "C"
     void gpio_listen_on_all_pins_polling(uint64_t blacklist_mask, gpio_interrupt_handler_t rising_handler, gpio_interrupt_handler_t falling_handler);
     void gpio_listen_on_all_pins_interrupt(uint64_t blacklist_mask, gpio_interrupt_handler_t rising_handler, gpio_interrupt_handler_t falling_handler);
 
-
     uint32_t get_elapsed_time(uint32_t start, uint32_t current);
     void delay_us(uint32_t us);
     void delay_ms(uint32_t ms);
 
-    bool is_signal_active(uint8_t pin, bool assert_high);
-    uint32_t get_timer_ticks(void);
-    void start_timer(void);
-    void stop_timer(void);
-    void reset_timer(void);
+    uint32_t get_timer_ticks(timer_t timer_r);
+    void start_timer(timer_t timer);
+    void stop_timer(timer_t timer);
+    void reset_timer(timer_t timer);
 
-    uint32_t ticks_to_us(uint64_t ticks);
-    uint32_t ticks_to_ms(uint64_t ticks);
-    uint32_t timer_diff_us(uint64_t start, uint64_t end);
-    uint32_t timer_diff_ms(uint64_t start, uint64_t end);
+    uint32_t ticks_to_us(uint32_t ticks);
+    uint32_t ticks_to_ms(uint32_t ticks);
+    uint32_t timer_diff_us(uint32_t start, uint32_t end);
+    uint32_t timer_diff_ms(uint32_t start, uint32_t end);
 
     uint32_t random32_lfsr(void);
     uint32_t random32(void);

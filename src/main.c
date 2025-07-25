@@ -9,9 +9,7 @@
 #define LED_GREEN_PIN 1 // P1.1
 #define ABS_PIN(port, pin) (((port) - 1) * 8 + (pin))
 
-uint64_t gpio_blacklist_mask = 0;
-
-
+// uint64_t gpio_blacklist_mask = 0;
 
 // Protocol configuration
 #define INITIAL_DELAY_MAX_MS 1000 // Max random initialization delay
@@ -58,32 +56,50 @@ int main(void)
 {
 
     io_init(); // Initialize GPIOs
+    printf("GPIO initialized.\n");
+    gpio_output_init(ABS_PIN(LED_RED_PORT, LED_RED_PIN)); // Initialize red LED as output
 
-    gpio_blacklist_mask = 0xFFFFFFFFFFFFFFFF; // All pins blacklisted
+    // gpio_blacklist_mask = 0xFFFFFFFFFFFFFFFF; // All pins blacklisted
 
-    for (uint8_t pin = 4; pin <= 7; pin++) {
-        gpio_blacklist_mask &= ~(1ULL << ABS_PIN(3, pin)); // Allow P3.4 to P3.7
-    }
-    // For the buttons on P5.5 and P5.6
-    gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 5)); // Allow P5.5
-    gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 6)); // Allow P5.6
-    gpio_blacklist_mask &= ~(1ULL << ABS_PIN(1, 2)); // Allow P1.2
-    gpio_blacklist_mask |= (1ULL << ABS_PIN(3, 4)); // Blacklist P3.4
+    // for (uint8_t pin = 4; pin <= 7; pin++) {
+    //     gpio_blacklist_mask &= ~(1ULL << ABS_PIN(3, pin)); // Allow P3.4 to P3.7
+    // }
+    // // For the buttons on P5.5 and P5.6
+    // gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 5)); // Allow P5.5
+    // gpio_blacklist_mask &= ~(1ULL << ABS_PIN(5, 6)); // Allow P5.6
+    // gpio_blacklist_mask &= ~(1ULL << ABS_PIN(1, 2)); // Allow P1.2
+    // gpio_blacklist_mask |= (1ULL << ABS_PIN(3, 4)); // Blacklist P3.4
 
+    // print_blacklist_pins(~gpio_blacklist_mask);
 
-    print_blacklist_pins(~gpio_blacklist_mask);
-
-
-    printf("LEDs initialized.\n");
-    gpio_listen_on_all_pins_interrupt(gpio_blacklist_mask, falling_edge_handler, rising_edge_handler);
-
+    //   printf("LEDs initialized.\n");
+    //  gpio_listen_on_all_pins_interrupt(gpio_blacklist_mask, falling_edge_handler, rising_edge_handler);
 
     // Initialize the interrupt handlers
-    //gpio_listen_interrupt_on_all_pins(0, rising_edge_handler, falling_edge_handler);
+    // gpio_listen_interrupt_on_all_pins(0, rising_edge_handler, falling_edge_handler);
 
     // Main loop
     while (1)
     {
+        // Stoppe und reset vorher
+        start_timer(TIMER_B0);
+
+        uint32_t start_time = get_timer_ticks(TIMER_B0);
+
+        gpio_drive_high(ABS_PIN(LED_RED_PORT, LED_RED_PIN));
+        // __delay_cycles(1600000*10); // Delay for approximately 100,000 cycles
+        delay_ms(1000); // Delay for 100 ms
+        gpio_drive_low(ABS_PIN(LED_RED_PORT, LED_RED_PIN));
+
+        uint32_t end_time = get_timer_ticks(TIMER_B0);
+
+        printf("Start time: %lu, End time: %lu\n", start_time, end_time);
+
+        uint32_t elapsed_time = timer_diff_ms(start_time, end_time);
+
+        printf("Elapsed time: %lu ms\n", elapsed_time);
+
+        stop_timer(TIMER_B0);
     }
 
     return 0;

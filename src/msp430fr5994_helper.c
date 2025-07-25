@@ -246,12 +246,14 @@ void delay_ticks(uint32_t ticks)
 
     remaining_ticks = ticks;
     
+    // Calculate the number of overflows needed
+    // if the remaining ticks are less than 0x10000, we can set it directly
     if (remaining_ticks <= 0x10000) {
         // Single period
         TA0CCR0 = remaining_ticks - 1;
         overflow_count = 0;
     } else {
-        // Multiple periods
+        // Multiple periods are needed so we calculate the overflow count
         overflow_count = (remaining_ticks - 1) / 0x10000;
         TA0CCR0 = 0xFFFF;  // Full period first
     }
@@ -272,15 +274,15 @@ void delay_ticks(uint32_t ticks)
     TA0CTL |= TACLR;
 }
 
-/**
- * @brief Interrupt Service Routine for Timer A0
- */
 
+// This is needed to quit the delay loop when the timer reaches the target ticks
 __attribute__((interrupt(TIMER0_A0_VECTOR))) 
 void Timer0_A0_ISR(void)
 {
+    // Clear the interrupt flag
     TA0CCTL0 &= ~CCIFG;
     if (overflow_count == 0) {
+        // Last tick reached, signal completion
         delay_done = true;
     } else {
         // Prepare for next overflow
@@ -293,15 +295,19 @@ __attribute__((interrupt(TIMER0_A1_VECTOR)))
 void Timer0_A1_ISR(void)
 {
     switch (__even_in_range(TA0IV, TA0IV_TAIFG)) {
+        // Handle Timer A0 overflow
         case TA0IV_TAIFG:
             if (overflow_count > 0) {
                 overflow_count--;
                 if (overflow_count == 0) {
                     // Last overflow, set final count
-                    TA0CCR0 = (remaining_ticks - 1) % 0x10000;
+                    // Since the timer counts inclusive, we set it to remaining_ticks - 1
+                    // (% 0x10000) used to ensure it fits in 16 bits
+                    TA0CCR0 = (remaining_ticks - 1) % 0x10000; // Set remaining ticks
                 }
             }
             break;
+        // Handle other cases if needed
         default:
             break;
     }
@@ -334,7 +340,7 @@ void delay_ms(uint32_t ms)
         delay_ticks(SMCLK_HZ);  // Exactly 1 second
         ms -= 1000;
     }
-    
+    // Handle remaining milliseconds
     if (ms > 0) {
         uint32_t ticks = ms * ticks_per_ms;
         delay_ticks(ticks);
